@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-gray-900 antialiased;
+  }
+}
+
+@layer components {
+  /* Botón principal — azul navy del logo */
+  .btn-primary {
+    @apply bg-cav-navy-500 hover:bg-cav-navy-600 active:bg-cav-navy-700 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Botón secundario — borde sky */
+  .btn-secondary {
+    @apply border-2 border-cav-navy-500 text-cav-navy-500 hover:bg-cavaltec-50 font-semibold px-6 py-2.5 rounded-lg transition-colors duration-200;
+  }
+
+  /* Inputs con foco sky */
+  .input-field {
+    @apply w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cav-sky-400 focus:border-cav-sky-400 transition placeholder-gray-400;
+  }
+
+  /* Cards con sombra sutil y borde muy ligero */
+  .card {
+    @apply bg-white rounded-2xl shadow-md border border-gray-100 p-6;
+  }
+
+  .label {
+    @apply block text-sm font-semibold text-gray-600 mb-1;
+  }
+}
