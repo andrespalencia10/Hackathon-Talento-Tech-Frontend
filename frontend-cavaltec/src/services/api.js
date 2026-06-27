@@ -3,11 +3,12 @@ import { getToken } from "@/hooks/useAuth";
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 async function handleResponse(res) {
+  const json = await res.json().catch(() => ({ message: res.statusText }));
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(error.message || `Error ${res.status}`);
+    throw new Error(json.message || `Error ${res.status}`);
   }
-  return res.json();
+  // El back siempre retorna { success, message, data }
+  return json.data !== undefined ? json.data : json;
 }
 
 function authHeaders(extra = {}) {
@@ -20,40 +21,12 @@ function authHeaders(extra = {}) {
 }
 
 // ── Auth ──────────────────────────────────────────────────
-// POST /api/v1/auth/login
-// Body: { email, password }
-// Response: { access_token, usuario: { id, nombre, email, rol, empresa_id } }
-export async function login(credentials) {
-  const res = await fetch(`${API_URL}/api/v1/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(credentials),
-  });
-  return handleResponse(res);
-}
-
-// POST /api/v1/auth/registro
-// Body: { nombre, email, password }
-// Response: { access_token, usuario: { id, nombre, email, rol, activo } }
-export async function registro(data) {
-  const res = await fetch(`${API_URL}/api/v1/auth/registro`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      nombre: data.nombre,
-      email: data.email,
-      password: data.password,
-      rol: "usuario",
-      oauth_provider: "local",
-    }),
-  });
-  return handleResponse(res);
+// OAuth Google — redirige al backend que redirige a Google
+export function iniciarLoginGoogle() {
+  window.location.href = `${API_URL}/api/v1/auth/google`;
 }
 
 // ── Empresas ──────────────────────────────────────────────
-// POST /api/v1/empresas
-// Body: { nombre, nit, sector, tamano, estado }
-// Response: { id, nombre, nit, sector, tamano, estado, created_at }
 export async function crearEmpresa(data) {
   const res = await fetch(`${API_URL}/api/v1/empresas`, {
     method: "POST",
@@ -63,7 +36,6 @@ export async function crearEmpresa(data) {
   return handleResponse(res);
 }
 
-// GET /api/v1/empresas/:id
 export async function getEmpresa(id) {
   const res = await fetch(`${API_URL}/api/v1/empresas/${id}`, {
     headers: authHeaders(),
@@ -71,7 +43,6 @@ export async function getEmpresa(id) {
   return handleResponse(res);
 }
 
-// GET /api/v1/empresas (lista del usuario autenticado)
 export async function getMisEmpresas() {
   const res = await fetch(`${API_URL}/api/v1/empresas`, {
     headers: authHeaders(),
@@ -79,12 +50,17 @@ export async function getMisEmpresas() {
   return handleResponse(res);
 }
 
-// ── Diagnóstico conversacional con IA ────────────────────
-// POST /api/v1/diagnostico/chat
-// Body: { empresa_id, usuario_id, historial, mensaje }
-// Response: { mensaje, finalizado, evaluacion_id?, resultado? }
+// ── Diagnóstico ──────────────────────────────────────────
+export async function getPreguntas() {
+  const res = await fetch(`${API_URL}/api/v1/diagnosticos/preguntas`, {
+    headers: authHeaders(),
+  });
+  return handleResponse(res);
+}
+
+// Chat IA — aún no existe en backend, usa simulador
 export async function enviarMensajeIA(payload) {
-  const res = await fetch(`${API_URL}/api/v1/diagnostico/chat`, {
+  const res = await fetch(`${API_URL}/api/v1/ia/chat`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -93,8 +69,15 @@ export async function enviarMensajeIA(payload) {
 }
 
 // ── Evaluaciones ──────────────────────────────────────────
-// GET /api/v1/evaluaciones/:id
-// Response: { id, empresa_id, usuario_id, porcentaje, nivel, estado, fecha_inicio, fecha_fin, ... }
+export async function crearEvaluacion(payload) {
+  const res = await fetch(`${API_URL}/api/v1/evaluaciones`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(res);
+}
+
 export async function getEvaluacion(id) {
   const res = await fetch(`${API_URL}/api/v1/evaluaciones/${id}`, {
     headers: authHeaders(),
@@ -102,31 +85,33 @@ export async function getEvaluacion(id) {
   return handleResponse(res);
 }
 
-// GET /api/v1/evaluaciones?empresa_id=X (historial)
-export async function getEvaluaciones(empresaId) {
-  const url = empresaId
-    ? `${API_URL}/api/v1/evaluaciones?empresa_id=${empresaId}`
-    : `${API_URL}/api/v1/evaluaciones`;
-  const res = await fetch(url, { headers: authHeaders() });
+// ── Resultados ────────────────────────────────────────────
+export async function getResultados(evaluacionId) {
+  const res = await fetch(`${API_URL}/api/v1/resultados/${evaluacionId}`, {
+    headers: authHeaders(),
+  });
   return handleResponse(res);
 }
 
 // ── Reportes PDF ──────────────────────────────────────────
-// GET /api/v1/reportes/:evaluacion_id
-// Response: { id, empresa_id, evaluacion_id, nombre_archivo, tamano_bytes, generado_en, url? }
 export async function getReporte(evaluacionId) {
-  const res = await fetch(`${API_URL}/api/v1/reportes/${evaluacionId}`, {
+  const res = await fetch(`${API_URL}/api/v1/reportes/${evaluacionId}/pdf`, {
     headers: authHeaders(),
   });
-  return handleResponse(res);
+  // Retorna PDF binario, no JSON
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || `Error ${res.status}`);
+  }
+  return res.blob();
 }
 
-// POST /api/v1/reportes (genera y guarda PDF)
-export async function generarReporte(evaluacionId) {
-  const res = await fetch(`${API_URL}/api/v1/reportes`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify({ evaluacion_id: evaluacionId }),
-  });
-  return handleResponse(res);
+export async function descargarReportePDF(evaluacionId) {
+  const blob = await getReporte(evaluacionId);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `reporte-cavaltec-${evaluacionId}.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

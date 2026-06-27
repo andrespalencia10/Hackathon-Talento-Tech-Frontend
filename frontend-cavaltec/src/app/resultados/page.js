@@ -6,7 +6,7 @@ import {
   FileText, Calendar, Building2, Loader2, BadgeCheck
 } from "lucide-react";
 import GraficoResultado from "@/components/GraficoResultado";
-import { getEvaluacion, generarReporte, getReporte } from "@/services/api";
+import { getEvaluacion, getResultados, descargarReportePDF } from "@/services/api";
 
 const RESULTADO_DEMO = {
   id: null,
@@ -29,10 +29,10 @@ const RESULTADO_DEMO = {
 };
 
 const NIVELES = [
-  { rango: "80–100%", nivel: "Excelente", color: "bg-green-500", desc: "Cumplimiento alto — mantener y mejorar" },
-  { rango: "60–79%", nivel: "Bueno", color: "bg-cavaltec-500", desc: "Cumplimiento aceptable — atender brechas" },
-  { rango: "40–59%", nivel: "Regular", color: "bg-amber-400", desc: "Cumplimiento parcial — acción prioritaria" },
-  { rango: "0–39%", nivel: "Crítico", color: "bg-red-500", desc: "Incumplimiento — intervención urgente" },
+  { rango: "90–100%", nivel: "EXCELENTE", color: "bg-green-500", desc: "Cumplimiento alto — mantener y mejorar" },
+  { rango: "70–89%", nivel: "BUENO",      color: "bg-cavaltec-500", desc: "Cumplimiento aceptable — atender brechas" },
+  { rango: "40–69%", nivel: "BASICO",     color: "bg-amber-400", desc: "Cumplimiento parcial — acción prioritaria" },
+  { rango: "0–39%",  nivel: "CRITICO",    color: "bg-red-500", desc: "Incumplimiento — intervención urgente" },
 ];
 
 function formatFecha(iso) {
@@ -45,13 +45,13 @@ function formatFecha(iso) {
 
 function EstadoBadge({ estado }) {
   const mapa = {
-    completada: "bg-green-100 text-green-700",
-    en_progreso: "bg-blue-100 text-blue-700",
-    pendiente: "bg-amber-100 text-amber-700",
+    COMPLETADA:  "bg-green-100 text-green-700",
+    EN_PROGRESO: "bg-blue-100 text-blue-700",
+    CANCELADA:   "bg-amber-100 text-amber-700",
   };
   return (
     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${mapa[estado] || "bg-gray-100 text-gray-600"}`}>
-      {estado?.replace("_", " ") || "completada"}
+      {estado?.replace("_", " ") || "COMPLETADA"}
     </span>
   );
 }
@@ -65,8 +65,7 @@ function ResultadosContent() {
   const [resultado, setResultado] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [generandoPDF, setGenerandoPDF] = useState(false);
-  const [reporte, setReporte] = useState(null);
+  const [descargando, setDescargando] = useState(false);
 
   const empresaNombre = typeof window !== "undefined"
     ? localStorage.getItem("empresa_nombre") || "Tu empresa"
@@ -77,19 +76,26 @@ function ResultadosContent() {
       const resultadoIA = typeof window !== "undefined"
         ? JSON.parse(localStorage.getItem("resultado_ia") || "null")
         : null;
-      setResultado(resultadoIA
-        ? { ...RESULTADO_DEMO, ...resultadoIA }
-        : RESULTADO_DEMO
-      );
+      setResultado(resultadoIA ? { ...RESULTADO_DEMO, ...resultadoIA } : RESULTADO_DEMO);
       setLoading(false);
       return;
     }
-    getEvaluacion(id)
-      .then((data) => {
-        setResultado({ ...data, brechas: data.brechas || [], logros: data.logros || [] });
-        return getReporte(id).catch(() => null);
+
+    // Carga evaluación + resultados/brechas en paralelo
+    Promise.all([
+      getEvaluacion(id),
+      getResultados(id).catch(() => null),
+    ])
+      .then(([evaluacion, resultados]) => {
+        setResultado({
+          ...evaluacion,
+          // El back retorna brechas como array de objetos { categoria, pregunta, peso }
+          // Mapeamos a strings para mostrar en la UI
+          brechas: resultados?.brechas?.map((b) => b.pregunta) || [],
+          logros: [],
+          porcentaje: evaluacion.porcentaje ?? evaluacion.cumplimiento ?? 0,
+        });
       })
-      .then((rep) => { if (rep) setReporte(rep); })
       .catch(() => {
         setResultado(RESULTADO_DEMO);
         setError("No se pudo conectar al servidor. Mostrando datos de demostración.");
@@ -97,17 +103,15 @@ function ResultadosContent() {
       .finally(() => setLoading(false));
   }, [id, demo]);
 
-  const handleGenerarPDF = async () => {
+  const handleDescargarPDF = async () => {
     if (!id) { window.print(); return; }
-    setGenerandoPDF(true);
+    setDescargando(true);
     try {
-      const rep = await generarReporte(id);
-      setReporte(rep);
-      if (rep.url) window.open(rep.url, "_blank");
+      await descargarReportePDF(id);
     } catch {
       setError("No se pudo generar el reporte PDF.");
     } finally {
-      setGenerandoPDF(false);
+      setDescargando(false);
     }
   };
 
@@ -122,11 +126,10 @@ function ResultadosContent() {
     );
   }
 
-  const pct = resultado?.porcentaje ?? resultado?.cumplimiento ?? 0;
+  const pct = Number(resultado?.porcentaje ?? resultado?.cumplimiento ?? 0);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-10 space-y-6">
-      {/* Header */}
       <div className="text-center">
         <div className="inline-flex items-center justify-center w-12 h-12 bg-cavaltec-50 rounded-2xl mb-2">
           <BarChart3 className="w-6 h-6 text-cavaltec-600" />
@@ -145,7 +148,6 @@ function ResultadosContent() {
         </div>
       )}
 
-      {/* Metadatos evaluación */}
       {(resultado?.fecha_inicio || resultado?.fecha_fin) && (
         <div className="flex flex-wrap justify-center gap-4 text-xs text-gray-500">
           {resultado.fecha_inicio && (
@@ -163,7 +165,6 @@ function ResultadosContent() {
         </div>
       )}
 
-      {/* Gráfico principal */}
       <div className="card">
         <h2 className="text-base font-semibold text-gray-700 mb-6 text-center">
           Cumplimiento normativo
@@ -171,7 +172,6 @@ function ResultadosContent() {
         <GraficoResultado porcentaje={pct} nivel={resultado?.nivel} />
       </div>
 
-      {/* Brechas y logros */}
       <div className="grid md:grid-cols-2 gap-4">
         {resultado?.brechas?.length > 0 && (
           <div className="card border-l-4 border-red-400">
@@ -208,7 +208,6 @@ function ResultadosContent() {
         )}
       </div>
 
-      {/* Escala */}
       <div className="card">
         <h3 className="font-semibold text-gray-800 mb-4">Escala de cumplimiento</h3>
         <div className="space-y-3">
@@ -216,7 +215,7 @@ function ResultadosContent() {
             <div key={r.nivel} className={`flex items-center gap-3 py-1 px-2 rounded-lg transition-colors ${resultado?.nivel === r.nivel ? "bg-gray-50 ring-1 ring-gray-200" : ""}`}>
               <div className={`w-3 h-3 rounded-full ${r.color} flex-shrink-0`} />
               <span className="text-xs font-semibold text-gray-600 w-16">{r.rango}</span>
-              <span className="text-xs font-bold text-gray-700 w-20">{r.nivel}</span>
+              <span className="text-xs font-bold text-gray-700 w-24">{r.nivel}</span>
               <span className="text-xs text-gray-400 flex-1">{r.desc}</span>
               {resultado?.nivel === r.nivel && (
                 <span className="text-xs text-cavaltec-600 font-bold">← Tu nivel</span>
@@ -226,25 +225,6 @@ function ResultadosContent() {
         </div>
       </div>
 
-      {/* Reporte PDF */}
-      {reporte && (
-        <div className="card border border-cavaltec-100 bg-cavaltec-50 flex items-center gap-4">
-          <FileText className="w-8 h-8 text-cavaltec-500 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-cavaltec-800 truncate">{reporte.nombre_archivo}</p>
-            <p className="text-xs text-cavaltec-600">
-              {reporte.tamano_bytes ? `${(reporte.tamano_bytes / 1024).toFixed(1)} KB` : ""} · Generado: {formatFecha(reporte.generado_en)}
-            </p>
-          </div>
-          {reporte.url && (
-            <a href={reporte.url} target="_blank" rel="noreferrer" className="btn-primary text-xs py-1.5 px-3 flex-shrink-0">
-              Descargar
-            </a>
-          )}
-        </div>
-      )}
-
-      {/* Acciones */}
       <div className="flex flex-col sm:flex-row gap-3">
         <button
           onClick={() => router.push("/diagnostico")}
@@ -253,29 +233,27 @@ function ResultadosContent() {
           Nuevo diagnóstico
         </button>
         <button
-          onClick={handleGenerarPDF}
-          disabled={generandoPDF}
+          onClick={handleDescargarPDF}
+          disabled={descargando || !id}
           className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
         >
-          {generandoPDF
+          {descargando
             ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando PDF...</>
-            : <><FileText className="w-4 h-4" /> {reporte ? "Re-generar reporte" : "Generar reporte PDF"}</>
+            : <><FileText className="w-4 h-4" /> Descargar reporte PDF</>
           }
         </button>
       </div>
 
-      {/* CTA MVP 2 */}
       <div className="bg-cavaltec-50 border border-cavaltec-100 rounded-2xl p-5 text-center space-y-2">
         <p className="text-sm font-semibold text-cavaltec-800">¿Quieres un análisis más profundo?</p>
         <p className="text-xs text-cavaltec-600">
-          En el MVP 2 tendrás acceso a dashboards, análisis avanzado con IA y reportes PDF automáticos con recomendaciones.
+          En el MVP 2 tendrás acceso a dashboards, análisis avanzado con IA y reportes PDF automáticos.
         </p>
         <button className="mt-1 text-xs font-bold text-cavaltec-700 underline flex items-center gap-1 mx-auto">
           Conocer más <ArrowRight className="w-3 h-3" />
         </button>
       </div>
 
-      {/* Steps indicator */}
       <div className="flex items-center justify-center gap-2 pt-2">
         {["Empresa", "Diagnóstico", "Resultados"].map((s, i) => (
           <div key={s} className="flex items-center gap-1.5">
