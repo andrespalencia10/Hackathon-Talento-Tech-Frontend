@@ -22,6 +22,7 @@ export default function DiagnosticoPage() {
   const [modoDemo, setModoDemo] = useState(false);
   const [historial, setHistorial] = useState([]);
   const [totalPreguntas, setTotalPreguntas] = useState(20);
+  const [empresaValida, setEmpresaValida] = useState(false);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -34,10 +35,23 @@ export default function DiagnosticoPage() {
   }, [mensajes, esperando]);
 
   useEffect(() => {
+    // Validar que existe empresa_id antes de continuar
+    const empresaId = localStorage.getItem("empresa_id");
+    if (!empresaId) {
+      router.push("/empresa");
+      return;
+    }
+    setEmpresaValida(true);
     iniciarChat();
   }, []);
 
   const iniciarChat = async () => {
+    const empresaId = localStorage.getItem("empresa_id");
+    if (!empresaId) {
+      router.push("/empresa");
+      return;
+    }
+
     setEsperando(true);
     setMensajes([]);
     setHistorial([]);
@@ -46,7 +60,6 @@ export default function DiagnosticoPage() {
     simulador = null;
 
     try {
-      const empresaId = localStorage.getItem("empresa_id");
       const empresaNombre = localStorage.getItem("empresa_nombre") || "tu empresa";
       const usuario = JSON.parse(localStorage.getItem("cavaltec_user") || "null");
 
@@ -60,7 +73,6 @@ export default function DiagnosticoPage() {
       setHistorial([{ role: "assistant", content: data.mensaje }]);
       agregarMensaje("ia", data.mensaje);
     } catch {
-      // Backend IA no disponible — modo demo con preguntas reales del back
       setModoDemo(true);
       const preguntas = await cargarPreguntas();
       setTotalPreguntas(preguntas.length);
@@ -131,6 +143,15 @@ export default function DiagnosticoPage() {
       enviar();
     }
   };
+
+  // Mientras valida redirige silenciosamente
+  if (!empresaValida) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="w-8 h-8 border-4 border-cavaltec-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col" style={{ height: "calc(100vh - 80px)" }}>
