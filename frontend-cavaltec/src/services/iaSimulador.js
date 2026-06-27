@@ -4,7 +4,7 @@
  * usa preguntas de fallback hardcodeadas.
  */
 
-import { getPreguntas } from "@/services/api";
+import { getPreguntas, crearEvaluacion } from "@/services/api";
 
 const PREGUNTAS_FALLBACK = [
   { id: "1", categoria: "Política de tratamiento", texto: "¿La empresa cuenta con una Política de Tratamiento de Datos Personales documentada?", peso: 10, orden: 1 },
@@ -81,7 +81,6 @@ export function crearSimuladorIA(preguntas = PREGUNTAS_FALLBACK) {
     async enviar(mensajeUsuario) {
       await new Promise((r) => setTimeout(r, 700 + Math.random() * 500));
 
-      // Primer mensaje — saludo + primera pregunta
       if (paso === 0) {
         paso++;
         const primera = flujo[0];
@@ -91,7 +90,6 @@ export function crearSimuladorIA(preguntas = PREGUNTAS_FALLBACK) {
         };
       }
 
-      // Registrar respuesta de la pregunta anterior
       const preguntaActual = flujo[paso - 1];
       const cumple = detectarRespuesta(mensajeUsuario) !== false;
 
@@ -104,7 +102,6 @@ export function crearSimuladorIA(preguntas = PREGUNTAS_FALLBACK) {
         respuesta: cumple,
       });
 
-      // Última pregunta respondida — calcular resultado
       if (paso >= flujo.length) {
         const pesoTotal = respuestasRegistradas.reduce((s, r) => s + r.peso, 0);
         const pesoObtenido = respuestasRegistradas.filter((r) => r.cumple).reduce((s, r) => s + r.peso, 0);
@@ -123,7 +120,6 @@ export function crearSimuladorIA(preguntas = PREGUNTAS_FALLBACK) {
           fecha_fin: new Date().toISOString(),
           brechas,
           logros,
-          // Para enviar al back cuando haya auth
           respuestasBack: respuestasRegistradas.map((r) => ({
             preguntaId: r.preguntaId,
             respuesta: r.respuesta,
@@ -134,6 +130,23 @@ export function crearSimuladorIA(preguntas = PREGUNTAS_FALLBACK) {
           localStorage.setItem("resultado_ia", JSON.stringify(resultado));
         }
 
+        const empresaId = typeof window !== "undefined" ? localStorage.getItem("empresa_id") : null;
+        const usuario = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("cavaltec_user") || "null") : null;
+        const usuarioId = usuario?.id;
+
+        if (empresaId && usuarioId) {
+          try {
+            const evalBack = await crearEvaluacion({
+              empresaId,
+              usuarioId,
+              respuestas: resultado.respuestasBack,
+            });
+            resultado.evaluacion_id = evalBack.id;
+          } catch (err) {
+            console.warn("No se pudo guardar la evaluación en el servidor – modo demo", err);
+          }
+        }
+
         return {
           mensaje: `¡Gracias por completar el diagnóstico! He analizado todas tus respuestas.\n\n📊 Tu nivel de cumplimiento estimado es del **${porcentaje}%** — nivel **${nivel}**.\n\nEn un momento verás el reporte detallado con las brechas identificadas y recomendaciones específicas.`,
           finalizado: true,
@@ -141,7 +154,6 @@ export function crearSimuladorIA(preguntas = PREGUNTAS_FALLBACK) {
         };
       }
 
-      // Siguiente pregunta
       const ack = cumple
         ? elegirAleatorio(RESPUESTAS_POSITIVAS)
         : elegirAleatorio(RESPUESTAS_NEGATIVAS);
