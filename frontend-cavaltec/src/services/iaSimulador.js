@@ -1,82 +1,32 @@
 /**
  * Simulador local de IA para diagnóstico de cumplimiento.
- * Se activa cuando el backend no está disponible.
- * Replica el comportamiento que tendría el modelo real en NestJS.
+ * Carga preguntas reales del backend. Si el backend no responde,
+ * usa preguntas de fallback hardcodeadas.
  */
 
-const FLUJO = [
-  {
-    mensaje: `¡Hola! Soy el asistente de diagnóstico de CAVALTEC. Voy a hacerte algunas preguntas sobre las prácticas de protección de datos en tu empresa para evaluar tu nivel de cumplimiento normativo. 
+import { getPreguntas } from "@/services/api";
 
-¿Tu empresa cuenta con una **política de tratamiento de datos personales** documentada y publicada (por ejemplo, en el sitio web o en documentos internos)?`,
-    categoria: "Política de datos",
-    peso: 10,
-    brecha: "Falta política de tratamiento de datos personales documentada y publicada",
-    logro: "Política de tratamiento de datos personales documentada y publicada",
-  },
-  {
-    mensaje: `Entendido. Siguiendo con el diagnóstico:
-
-¿La política de privacidad de tu empresa especifica claramente **para qué finalidad** se recopilan y usan los datos personales de clientes, empleados o terceros?`,
-    categoria: "Política de datos",
-    peso: 10,
-    brecha: "La política no especifica la finalidad del tratamiento de datos personales",
-    logro: "Finalidad del tratamiento de datos claramente definida en la política",
-  },
-  {
-    mensaje: `Perfecto. Ahora hablemos de diseño:
-
-¿Los sistemas de información o productos digitales de tu empresa incorporan **privacidad desde el diseño** (Privacy by Design)? Es decir, ¿se considera la privacidad desde la etapa de desarrollo, no como un añadido posterior?`,
-    categoria: "Privacidad desde diseño",
-    peso: 15,
-    brecha: "Los sistemas no aplican privacidad desde el diseño (Privacy by Design)",
-    logro: "Privacidad incorporada desde el diseño en sistemas y productos digitales",
-  },
-  {
-    mensaje: `Muy bien. Continuemos:
-
-¿Tu empresa realiza **Evaluaciones de Impacto en la Privacidad (EIPD)** antes de lanzar nuevos proyectos, sistemas o procesos que involucren datos personales?`,
-    categoria: "Privacidad desde diseño",
-    peso: 15,
-    brecha: "No se realizan Evaluaciones de Impacto en la Privacidad (EIPD)",
-    logro: "Se realizan Evaluaciones de Impacto en la Privacidad (EIPD) de forma sistemática",
-  },
-  {
-    mensaje: `Gracias por la información. Pasemos a gobernanza:
-
-¿Tu empresa tiene designado un **Responsable o Delegado de Protección de Datos** (DPO o figura equivalente) que supervise el cumplimiento normativo?`,
-    categoria: "Gobernanza",
-    peso: 10,
-    brecha: "No existe un Delegado de Protección de Datos (DPO) designado",
-    logro: "Delegado de Protección de Datos (DPO) designado y activo",
-  },
-  {
-    mensaje: `Entiendo. Ahora sobre derechos de los titulares:
-
-¿Cuentan con un **procedimiento formal para atender los derechos ARCO** (Acceso, Rectificación, Cancelación u Oposición) que los titulares de datos pueden ejercer?`,
-    categoria: "Gobernanza",
-    peso: 15,
-    brecha: "Ausencia de procedimiento formal para atender derechos ARCO de los titulares",
-    logro: "Procedimiento formal para derechos ARCO establecido y operativo",
-  },
-  {
-    mensaje: `Bien. Una pregunta sobre formación:
-
-¿Tu empresa realiza **capacitaciones periódicas** al personal sobre protección de datos personales, normativa aplicable y buenas prácticas?`,
-    categoria: "Gobernanza",
-    peso: 10,
-    brecha: "El personal no recibe capacitaciones periódicas en protección de datos",
-    logro: "Programa de capacitación periódica en protección de datos para el personal",
-  },
-  {
-    mensaje: `Casi terminamos. Última pregunta:
-
-¿Implementan **medidas técnicas y organizativas de seguridad** para proteger los datos personales? Por ejemplo: cifrado, control de accesos, copias de seguridad, gestión de incidentes.`,
-    categoria: "Seguridad",
-    peso: 15,
-    brecha: "Medidas técnicas y organizativas de seguridad insuficientes o inexistentes",
-    logro: "Medidas técnicas y organizativas de seguridad implementadas y documentadas",
-  },
+const PREGUNTAS_FALLBACK = [
+  { id: "1", categoria: "Política de tratamiento", texto: "¿La empresa cuenta con una Política de Tratamiento de Datos Personales documentada?", peso: 10, orden: 1 },
+  { id: "2", categoria: "Política de tratamiento", texto: "¿La política está publicada y accesible para los titulares?", peso: 8, orden: 2 },
+  { id: "3", categoria: "Política de tratamiento", texto: "¿La política incluye los fines del tratamiento de datos personales?", peso: 8, orden: 3 },
+  { id: "4", categoria: "Aviso de privacidad", texto: "¿Se entrega aviso de privacidad al momento de recolectar datos personales?", peso: 9, orden: 4 },
+  { id: "5", categoria: "Aviso de privacidad", texto: "¿El aviso de privacidad indica la identidad y datos de contacto del responsable?", peso: 7, orden: 5 },
+  { id: "6", categoria: "Aviso de privacidad", texto: "¿El aviso señala los fines del tratamiento para los cuales se solicitan los datos?", peso: 8, orden: 6 },
+  { id: "7", categoria: "Autorización del titular", texto: "¿La empresa obtiene autorización previa, expresa e informada del titular?", peso: 10, orden: 7 },
+  { id: "8", categoria: "Autorización del titular", texto: "¿Las autorizaciones se conservan como evidencia?", peso: 9, orden: 8 },
+  { id: "9", categoria: "Autorización del titular", texto: "¿Existe un mecanismo para que el titular revoque su autorización?", peso: 8, orden: 9 },
+  { id: "10", categoria: "Derechos del titular", texto: "¿La empresa tiene un canal habilitado para que los titulares ejerzan sus derechos?", peso: 9, orden: 10 },
+  { id: "11", categoria: "Derechos del titular", texto: "¿Existe un procedimiento para atender solicitudes de rectificación, actualización o supresión?", peso: 9, orden: 11 },
+  { id: "12", categoria: "Derechos del titular", texto: "¿Se respetan los tiempos de respuesta (10 días hábiles para consultas, 15 para reclamos)?", peso: 8, orden: 12 },
+  { id: "13", categoria: "Medidas de seguridad", texto: "¿La empresa ha implementado medidas técnicas para proteger las bases de datos personales?", peso: 10, orden: 13 },
+  { id: "14", categoria: "Medidas de seguridad", texto: "¿Existen controles de acceso diferenciado a las bases de datos con información personal?", peso: 9, orden: 14 },
+  { id: "15", categoria: "Medidas de seguridad", texto: "¿Se cuenta con un plan de respuesta ante incidentes de seguridad de datos personales?", peso: 8, orden: 15 },
+  { id: "16", categoria: "Registro Nacional de Bases de Datos", texto: "¿Las bases de datos están registradas ante la SIC?", peso: 9, orden: 16 },
+  { id: "17", categoria: "Registro Nacional de Bases de Datos", texto: "¿El registro en el RNBD está actualizado con los datos vigentes de cada base?", peso: 7, orden: 17 },
+  { id: "18", categoria: "Transferencia internacional", texto: "¿Cuando se transfieren datos al exterior, se verifica que el país receptor tenga niveles adecuados de protección?", peso: 8, orden: 18 },
+  { id: "19", categoria: "Transferencia internacional", texto: "¿Se cuenta con cláusulas contractuales o garantías para transferencias internacionales?", peso: 8, orden: 19 },
+  { id: "20", categoria: "Transferencia internacional", texto: "¿Se obtiene autorización expresa del titular para transferencias internacionales de sus datos?", peso: 9, orden: 20 },
 ];
 
 const RESPUESTAS_POSITIVAS = [
@@ -96,14 +46,9 @@ const RESPUESTAS_NEGATIVAS = [
 function detectarRespuesta(texto) {
   const t = texto.toLowerCase();
   const positivos = ["sí", "si", "yes", "contamos", "tenemos", "cumplimos", "implementamos", "realizamos", "existe", "disponemos", "claro", "correcto", "afirmativo"];
-  const negativos = ["no", "nope", "negativo", "falta", "carecemos", "no tenemos", "no contamos", "no disponemos", "nunca", "aún no", "todavía no"];
-
-  for (const p of positivos) {
-    if (t.includes(p)) return true;
-  }
-  for (const n of negativos) {
-    if (t.includes(n)) return false;
-  }
+  const negativos = ["no", "nope", "negativo", "falta", "carecemos", "no tenemos", "no contamos", "nunca", "aún no", "todavía no"];
+  for (const p of positivos) if (t.includes(p)) return true;
+  for (const n of negativos) if (t.includes(n)) return false;
   return null;
 }
 
@@ -111,87 +56,106 @@ function elegirAleatorio(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-export function crearSimuladorIA() {
+function calcularNivel(porcentaje) {
+  if (porcentaje >= 90) return "EXCELENTE";
+  if (porcentaje >= 70) return "BUENO";
+  if (porcentaje >= 40) return "BASICO";
+  return "CRITICO";
+}
+
+export async function cargarPreguntas() {
+  try {
+    const preguntas = await getPreguntas();
+    return Array.isArray(preguntas) ? preguntas : PREGUNTAS_FALLBACK;
+  } catch {
+    return PREGUNTAS_FALLBACK;
+  }
+}
+
+export function crearSimuladorIA(preguntas = PREGUNTAS_FALLBACK) {
   let paso = 0;
   const respuestasRegistradas = [];
+  const flujo = preguntas.sort((a, b) => a.orden - b.orden);
 
   return {
     async enviar(mensajeUsuario) {
-      await new Promise((r) => setTimeout(r, 900 + Math.random() * 600));
+      await new Promise((r) => setTimeout(r, 700 + Math.random() * 500));
 
+      // Primer mensaje — saludo + primera pregunta
       if (paso === 0) {
         paso++;
+        const primera = flujo[0];
         return {
-          mensaje: FLUJO[0].mensaje,
+          mensaje: `¡Hola! Soy el asistente de diagnóstico de CAVALTEC. Voy a hacerte **${flujo.length} preguntas** sobre las prácticas de protección de datos en tu empresa para evaluar tu nivel de cumplimiento con la **Ley 1581 de 2012**.\n\n**${primera.categoria}**\n\n${primera.texto}`,
           finalizado: false,
         };
       }
 
-      const respuestaBool = detectarRespuesta(mensajeUsuario);
-      const pasoActual = FLUJO[paso - 1];
+      // Registrar respuesta de la pregunta anterior
+      const preguntaActual = flujo[paso - 1];
+      const cumple = detectarRespuesta(mensajeUsuario) !== false;
 
       respuestasRegistradas.push({
-        categoria: pasoActual.categoria,
-        peso: pasoActual.peso,
-        brecha: pasoActual.brecha,
-        logro: pasoActual.logro,
-        cumple: respuestaBool !== false,
+        preguntaId: preguntaActual.id,
+        pregunta: preguntaActual.texto,
+        categoria: preguntaActual.categoria,
+        peso: preguntaActual.peso,
+        cumple,
+        respuesta: cumple,
       });
 
-      if (paso >= FLUJO.length) {
-        const puntajeTotal = respuestasRegistradas.reduce((sum, r) => sum + r.peso, 0);
-        const puntajeObtenido = respuestasRegistradas
-          .filter((r) => r.cumple)
-          .reduce((sum, r) => sum + r.peso, 0);
-        const porcentaje = Math.round((puntajeObtenido / puntajeTotal) * 100);
+      // Última pregunta respondida — calcular resultado
+      if (paso >= flujo.length) {
+        const pesoTotal = respuestasRegistradas.reduce((s, r) => s + r.peso, 0);
+        const pesoObtenido = respuestasRegistradas.filter((r) => r.cumple).reduce((s, r) => s + r.peso, 0);
+        const porcentaje = Math.round((pesoObtenido / pesoTotal) * 100);
+        const nivel = calcularNivel(porcentaje);
 
-        const brechas = respuestasRegistradas
-          .filter((r) => !r.cumple)
-          .map((r) => r.brecha);
-
-        const logros = respuestasRegistradas
-          .filter((r) => r.cumple)
-          .map((r) => r.logro);
-
-        let nivel;
-        if (porcentaje >= 80) nivel = "Excelente";
-        else if (porcentaje >= 60) nivel = "Bueno";
-        else if (porcentaje >= 40) nivel = "Regular";
-        else nivel = "Crítico";
+        const brechas = respuestasRegistradas.filter((r) => !r.cumple).map((r) => r.pregunta);
+        const logros = respuestasRegistradas.filter((r) => r.cumple).map((r) => r.pregunta);
 
         const resultado = {
           porcentaje,
           cumplimiento: porcentaje,
           nivel,
-          estado: "completada",
-          fecha_inicio: new Date(Date.now() - respuestasRegistradas.length * 60000).toISOString(),
+          estado: "COMPLETADA",
+          fecha_inicio: new Date(Date.now() - flujo.length * 60000).toISOString(),
           fecha_fin: new Date().toISOString(),
           brechas,
           logros,
+          // Para enviar al back cuando haya auth
+          respuestasBack: respuestasRegistradas.map((r) => ({
+            preguntaId: r.preguntaId,
+            respuesta: r.respuesta,
+          })),
         };
 
-        localStorage.setItem("resultado_ia", JSON.stringify(resultado));
+        if (typeof window !== "undefined") {
+          localStorage.setItem("resultado_ia", JSON.stringify(resultado));
+        }
 
         return {
-          mensaje: `¡Gracias por completar el diagnóstico! He analizado todas tus respuestas. 
-
-📊 Tu nivel de cumplimiento estimado es del **${porcentaje}%** — nivel **${resultado.nivel}**.
-
-En un momento verás el reporte detallado con las brechas identificadas y recomendaciones específicas.`,
+          mensaje: `¡Gracias por completar el diagnóstico! He analizado todas tus respuestas.\n\n📊 Tu nivel de cumplimiento estimado es del **${porcentaje}%** — nivel **${nivel}**.\n\nEn un momento verás el reporte detallado con las brechas identificadas y recomendaciones específicas.`,
           finalizado: true,
           resultado,
         };
       }
 
-      const ack = respuestaBool === false
-        ? elegirAleatorio(RESPUESTAS_NEGATIVAS)
-        : elegirAleatorio(RESPUESTAS_POSITIVAS);
+      // Siguiente pregunta
+      const ack = cumple
+        ? elegirAleatorio(RESPUESTAS_POSITIVAS)
+        : elegirAleatorio(RESPUESTAS_NEGATIVAS);
 
-      const siguiente = FLUJO[paso];
+      const siguiente = flujo[paso];
+      const esNuevaCategoria = siguiente.categoria !== preguntaActual.categoria;
       paso++;
 
+      const encabezado = esNuevaCategoria
+        ? `\n\n**${siguiente.categoria}**\n\n`
+        : "\n\n";
+
       return {
-        mensaje: `${ack}\n\n${siguiente.mensaje}`,
+        mensaje: `${ack}${encabezado}${siguiente.texto}`,
         finalizado: false,
       };
     },

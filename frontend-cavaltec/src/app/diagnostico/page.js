@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, User, Send, RotateCcw, Sparkles } from "lucide-react";
 import { enviarMensajeIA } from "@/services/api";
-import { crearSimuladorIA } from "@/services/iaSimulador";
+import { crearSimuladorIA, cargarPreguntas } from "@/services/iaSimulador";
 
 function formatearMensaje(texto) {
   return texto
@@ -13,11 +13,6 @@ function formatearMensaje(texto) {
 
 let simulador = null;
 
-function getSimulador() {
-  if (!simulador) simulador = crearSimuladorIA();
-  return simulador;
-}
-
 export default function DiagnosticoPage() {
   const router = useRouter();
   const [mensajes, setMensajes] = useState([]);
@@ -26,6 +21,7 @@ export default function DiagnosticoPage() {
   const [finalizado, setFinalizado] = useState(false);
   const [modoDemo, setModoDemo] = useState(false);
   const [historial, setHistorial] = useState([]);
+  const [totalPreguntas, setTotalPreguntas] = useState(20);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -33,12 +29,8 @@ export default function DiagnosticoPage() {
     setMensajes((prev) => [...prev, { rol, texto, ts: Date.now() }]);
   };
 
-  const scrollAbajo = () => {
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
-  };
-
   useEffect(() => {
-    scrollAbajo();
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
   }, [mensajes, esperando]);
 
   useEffect(() => {
@@ -51,25 +43,29 @@ export default function DiagnosticoPage() {
     setHistorial([]);
     setFinalizado(false);
     setInput("");
+    simulador = null;
 
     try {
-      const empresaId = localStorage.getItem("empresa_id") || 1;
+      const empresaId = localStorage.getItem("empresa_id");
       const empresaNombre = localStorage.getItem("empresa_nombre") || "tu empresa";
       const usuario = JSON.parse(localStorage.getItem("cavaltec_user") || "null");
+
       const data = await enviarMensajeIA({
-        empresa_id: Number(empresaId),
+        empresa_id: empresaId,
         empresa_nombre: empresaNombre,
         usuario_id: usuario?.id || null,
         historial: [],
         mensaje: "__inicio__",
-        fecha_inicio: new Date().toISOString(),
       });
       setHistorial([{ role: "assistant", content: data.mensaje }]);
       agregarMensaje("ia", data.mensaje);
     } catch {
+      // Backend IA no disponible — modo demo con preguntas reales del back
       setModoDemo(true);
-      getSimulador().reiniciar();
-      const resp = await getSimulador().enviar("__inicio__");
+      const preguntas = await cargarPreguntas();
+      setTotalPreguntas(preguntas.length);
+      simulador = crearSimuladorIA(preguntas);
+      const resp = await simulador.enviar("__inicio__");
       setHistorial([{ role: "assistant", content: resp.mensaje }]);
       agregarMensaje("ia", resp.mensaje);
     } finally {
@@ -86,21 +82,18 @@ export default function DiagnosticoPage() {
     agregarMensaje("usuario", texto);
     setEsperando(true);
 
-    const nuevoHistorial = [
-      ...historial,
-      { role: "user", content: texto },
-    ];
+    const nuevoHistorial = [...historial, { role: "user", content: texto }];
 
     try {
       let data;
 
       if (modoDemo) {
-        data = await getSimulador().enviar(texto);
+        data = await simulador.enviar(texto);
       } else {
-        const empresaId = localStorage.getItem("empresa_id") || 1;
+        const empresaId = localStorage.getItem("empresa_id");
         const usuario = JSON.parse(localStorage.getItem("cavaltec_user") || "null");
         data = await enviarMensajeIA({
-          empresa_id: Number(empresaId),
+          empresa_id: empresaId,
           usuario_id: usuario?.id || null,
           historial: nuevoHistorial,
           mensaje: texto,
@@ -141,7 +134,6 @@ export default function DiagnosticoPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col" style={{ height: "calc(100vh - 80px)" }}>
-      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-cavaltec-500 rounded-xl flex items-center justify-center">
@@ -150,7 +142,7 @@ export default function DiagnosticoPage() {
           <div>
             <h1 className="text-lg font-bold text-gray-900 leading-tight">Diagnóstico con IA</h1>
             <p className="text-xs text-gray-400">
-              {modoDemo ? "Modo demo — simulador local" : "Asistente CAVALTEC"}
+              {modoDemo ? `Modo demo — ${totalPreguntas} preguntas Ley 1581` : "Asistente CAVALTEC"}
             </p>
           </div>
         </div>
@@ -160,17 +152,12 @@ export default function DiagnosticoPage() {
               Demo
             </span>
           )}
-          <button
-            onClick={iniciarChat}
-            className="p-2 rounded-lg text-gray-400 hover:text-cavaltec-600 hover:bg-cavaltec-50 transition-colors"
-            title="Reiniciar diagnóstico"
-          >
+          <button onClick={iniciarChat} className="p-2 rounded-lg text-gray-400 hover:text-cavaltec-600 hover:bg-cavaltec-50 transition-colors" title="Reiniciar diagnóstico">
             <RotateCcw className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* Steps indicator */}
       <div className="flex items-center justify-center gap-2 mb-4">
         <div className="flex items-center gap-1.5">
           <span className="w-5 h-5 rounded-full bg-green-500 text-white text-xs flex items-center justify-center font-bold">✓</span>
@@ -188,44 +175,21 @@ export default function DiagnosticoPage() {
         </div>
       </div>
 
-      {/* Área de chat */}
       <div className="flex-1 overflow-y-auto space-y-4 pr-1 pb-2">
         {mensajes.map((m, i) => (
-          <div
-            key={i}
-            className={`flex gap-3 ${m.rol === "usuario" ? "flex-row-reverse" : "flex-row"}`}
-          >
-            {/* Avatar */}
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-              m.rol === "ia"
-                ? "bg-cavaltec-500 text-white"
-                : "bg-gray-200 text-gray-600"
-            }`}>
-              {m.rol === "ia"
-                ? <Bot className="w-4 h-4" />
-                : <User className="w-4 h-4" />
-              }
+          <div key={i} className={`flex gap-3 ${m.rol === "usuario" ? "flex-row-reverse" : "flex-row"}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${m.rol === "ia" ? "bg-cavaltec-500 text-white" : "bg-gray-200 text-gray-600"}`}>
+              {m.rol === "ia" ? <Bot className="w-4 h-4" /> : <User className="w-4 h-4" />}
             </div>
-
-            {/* Burbuja */}
             <div
-              className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-                m.rol === "ia"
-                  ? "bg-white border border-gray-100 shadow-sm text-gray-800 rounded-tl-sm"
-                  : "bg-cavaltec-500 text-white rounded-tr-sm"
-              }`}
-              dangerouslySetInnerHTML={
-                m.rol === "ia"
-                  ? { __html: formatearMensaje(m.texto) }
-                  : undefined
-              }
+              className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${m.rol === "ia" ? "bg-white border border-gray-100 shadow-sm text-gray-800 rounded-tl-sm" : "bg-cavaltec-500 text-white rounded-tr-sm"}`}
+              dangerouslySetInnerHTML={m.rol === "ia" ? { __html: formatearMensaje(m.texto) } : undefined}
             >
               {m.rol === "usuario" ? m.texto : undefined}
             </div>
           </div>
         ))}
 
-        {/* Indicador de escritura */}
         {esperando && (
           <div className="flex gap-3 flex-row">
             <div className="w-8 h-8 rounded-full bg-cavaltec-500 text-white flex items-center justify-center flex-shrink-0">
@@ -241,7 +205,6 @@ export default function DiagnosticoPage() {
           </div>
         )}
 
-        {/* Mensaje de finalización */}
         {finalizado && (
           <div className="text-center py-3">
             <span className="text-xs text-gray-400 bg-gray-50 px-3 py-1 rounded-full">
@@ -249,11 +212,9 @@ export default function DiagnosticoPage() {
             </span>
           </div>
         )}
-
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <div className="mt-3 border-t border-gray-100 pt-3">
         {finalizado ? (
           <div className="flex items-center justify-center gap-2 py-2 text-sm text-green-600 font-medium">

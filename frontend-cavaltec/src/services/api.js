@@ -115,3 +115,12 @@ export async function descargarReportePDF(evaluacionId) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+// ── Auth local (redirige a OAuth — el back no tiene login/password) ──
+export async function login() {
+  iniciarLoginGoogle();
+}
+
+export async function registro() {
+  iniciarLoginGoogle();
+}
